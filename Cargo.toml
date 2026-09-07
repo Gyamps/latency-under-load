@@ -1,0 +1,16 @@
+[package]
+name = "latency"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rand = "0.10.2"
+tokio = { version = "1.53.1", features = ["full"] }
+tokio-tungstenite = { version = "0.30.0", features = ["native-tls"] }
+tracing = "0.1.44"
+futures-util = "0.3.34"
+url = "2.5.8"
+bytes = "1.12.1"
+anyhow = "1.0.104"
+serde_json = "1.0.151"
+
