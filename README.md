@@ -69,7 +69,7 @@ flowchart LR
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/Gyamps/latency-under-load.git](https://github.com/Gyamps/latency-under-load.git)
+   git clone https://github.com/Gyamps/latency-under-load.git
    cd latency-under-load
 
    docker-compose up -d
