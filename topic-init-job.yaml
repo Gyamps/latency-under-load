@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redpanda-topic-init
+  namespace: orderbook
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-redpanda
+          image: busybox:latest
+          command:
+            - "sh"
+            - "-c"
+            - "until nc -z redpanda 9092; do echo waiting for redpanda; sleep 2; done;"
+      containers:
+        - name: create-topics
+          image: redpandadata/redpanda:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              rpk -X brokers=redpanda:9092 topic create l2-market-data --partitions 16 --replicas 1 -c cleanup.policy=delete -c retention.ms=21600000 || true
