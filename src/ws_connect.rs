@@ -15,7 +15,7 @@
 
 use futures_util::{SinkExt, StreamExt};
 use rand::RngExt;
-use std::{collections::VecDeque, time::Duration};
+use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
@@ -30,7 +30,6 @@ pub enum ServerEvent {
 #[derive(Debug, Clone)]
 pub struct ClientMsg {
     pub payload: String,
-    pub seq: &'static str,
 }
 
 pub struct Client {
@@ -55,12 +54,8 @@ impl Client {
         })
     }
 
-    pub async fn send(
-        &self,
-        payload: String,
-        seq: &'static str,
-    ) -> Result<(), mpsc::error::SendError<ClientMsg>> {
-        self.tx.send(ClientMsg { payload, seq }).await
+    pub async fn send(&self, payload: String) -> Result<(), mpsc::error::SendError<ClientMsg>> {
+        self.tx.send(ClientMsg { payload }).await
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<ServerEvent> {
@@ -77,7 +72,6 @@ fn backoff(attempt: u32) -> Duration {
     Duration::from_millis((capped as f64 * jitter) as u64)
 }
 
-
 // The core supervisor is one `loop` with three phases:
 // - connect
 // - run
@@ -88,7 +82,6 @@ async fn supervisor(
     events: broadcast::Sender<ServerEvent>,
 ) {
     let mut attempt: u32 = 0;
-    let mut in_flight: VecDeque<ClientMsg> = VecDeque::new();
 
     loop {
         tracing::info!(attempt, "connecting");
@@ -107,19 +100,7 @@ async fn supervisor(
         let _ = events.send(ServerEvent::Connected);
         let (mut sink, mut stream) = ws.split();
 
-        let pending = std::mem::take(&mut in_flight);
-        // replay anything we buffered during the outage
-        for msg in pending {
-            let text_frame = Message::Text(msg.payload.clone().into());
-
-            if sink.send(text_frame).await.is_err() {
-                tracing::warn!(seq = msg.seq, "replay failed mid-flight");
-                in_flight.push_back(msg);
-                break;
-            }
-        }
-
-        let reason = run_connection(&mut sink, &mut stream, &mut rx, &events, &mut in_flight).await;
+        let reason = run_connection(&mut sink, &mut stream, &mut rx, &events).await;
         let _ = events.send(ServerEvent::Disconnected { reason });
 
         let wait = backoff(attempt);
@@ -128,20 +109,17 @@ async fn supervisor(
     }
 }
 
-
-
 // Multiplex 3 sources:
 // - outbound caller messages which will be very small
 // - inbound server frames: the main part of our application
 // which has large amounts of data coming in continuously
 // - periodic ping timer: if server is quiet (no stream of data),
-// we use this to basically make sure all is well 
+// we use this to basically make sure all is well
 async fn run_connection(
     sink: &mut (impl SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin),
     stream: &mut (impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin),
     rx: &mut mpsc::Receiver<ClientMsg>,
     events: &broadcast::Sender<ServerEvent>,
-    in_flight: &mut VecDeque<ClientMsg>,
 ) -> String {
     let mut ping_tick = tokio::time::interval(Duration::from_secs(15));
     ping_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -152,14 +130,8 @@ async fn run_connection(
             biased;     // Disable random branching by `select!`
 
             Some(msg) = rx.recv() => {
-                in_flight.push_back(msg.clone());
-                match sink.send(Message::Text(msg.payload.into())).await {
-                    Ok(()) => {
-                        in_flight.retain(|m| m.seq != msg.seq);
-                    }
-                    Err(e) => {
-                        return format!("send failed: {e}");
-                    }
+                if let Err(e) = sink.send(Message::Text(msg.payload.into())).await {
+                    return format!("send failed: {e}");
                 }
             }
 
@@ -193,4 +165,3 @@ async fn run_connection(
         }
     }
 }
-
