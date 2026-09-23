@@ -23,40 +23,17 @@ Besides venturing into system-level programming, the project exists to answer on
 
 ## 🏛️ System Architecture
 
-​                                 ┌────────────────────────────────┐
-​                                 │                          WebSocket Clients                          │
-​                                 │                 (Binance & Coinbase Streams)                │
-​                                 └───────────────┬────────────────┘
-​                                                                          │ Normalized Updates
-​                                                                         ▼
-​                                 ┌────────────────────────────────┐
-​                                 │                      Kafka/Redpanda Producer                  │
-​                                 │                           ("l2-market-data")                           │
-​                                 └───────────────┬────────────────┘
-​                                                                          │
-​                                                                         ▼
-​                                 ┌────────────────────────────────┐
-​                                 │                        Kafka Consumer + Redis                  │
-​                                 │                              (Deduplication)                            │
-​                                 └───────────────┬────────────────┘
-​                                                                          │
-​                                                                         ▼
-​                                 ┌────────────────────────────────┐
-​                                 │                    Order Book Manager (OBM)                 │
-​                                 │                   - Maintains In-Memory Books                │
-​                                 │                   - Cross-Exchange Arbitrage                   │
-​                                 └───────────────┬────────────────┘
-​                                                                          │
-​                                                                         ▼
-​                                 ┌────────────────────────────────┐
-​                                 │                     TimescaleDB Writer Task                     │
-​                                 │                - Chunked Parameter Flushing                 │
-​                                 └───────────────┬────────────────┘
-​                                                                          │
-​                                                                         ▼
-​                                 ┌────────────────────────────────┐
-​                                 │                     TimescaleDB (Hypertable)                   │
-​                                 └────────────────────────────────┘
+```mermaid
+flowchart LR
+    B[Binance WS Stream] --> I[Ingestion Service<br/>Rust / Tokio]
+    C[Coinbase WS Stream] --> I
+    I --> K[Kafka/Redpanda Producer<br/>l2-market-data]
+	K --> R[(Kafka Consumer + Redis<br/>Deduplication)]
+    R --> E[Order Book Engine<br/>Async State Manager]
+    E --> M[Consolidated L2<br/>In-Memory Book]
+    E --> T[(TimescaleDB<br/>Time-Series Storage)]
+```
+---
 
 ### Key Engineering Highlights
 
